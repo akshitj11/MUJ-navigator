@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MUJ Navigator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <style>
+        body {
+            font-family: 'Manrope', sans-serif;
+            overflow: hidden;
+        }
+        .sidebar-scroll::-webkit-scrollbar { width: 6px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            z-index: 1;
+            /* More natural transition */
+            transition: transform 0.45s cubic-bezier(0.76, 0, 0.24, 1);
+        }
+        
+        @media (min-width: 768px) {
+            #map.map-pushed {
+                transform: translateX(24rem); /* w-96 */
+            }
+        }
+
+        #sidebar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            z-index: 10;
+            transform: translateX(-100%); 
+            /* More natural transition */
+            transition: transform 0.45s cubic-bezier(0.76, 0, 0.24, 1);
+            background: rgba(253, 186, 116, 0.2); /* More transparent */
+            backdrop-filter: blur(24px) saturate(180%); /* More blur and saturation */
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border-right: 1px solid rgba(251, 146, 60, 0.2);
+        }
+        
+        #sidebar.open {
+            transform: translateX(0);
+        }
+
+        #menu-toggle {
+            position: absolute;
+            top: 1.25rem;
+            left: 1.25rem;
+            z-index: 20;
+            transition: all 0.3s ease-in-out;
+            filter: url("#gooey"); 
+        }
+        
+        .hamburger-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .hamburger-icon .line {
+            display: block;
+            width: 24px;
+            height: 3px;
+            background-color: white;
+            border-radius: 2px;
+            transition: transform 0.3s ease-in-out, opacity 0.2s ease-in-out;
+            margin: 2px 0;
+        }
+        .hamburger-icon.open .line-1 { transform: translateY(7px) rotate(45deg); }
+        .hamburger-icon.open .line-2 { opacity: 0; }
+        .hamburger-icon.open .line-3 { transform: translateY(-7px) rotate(-45deg); }
+
+
+        /* --- Themed Leaflet Controls --- */
+        .leaflet-control-zoom a, .leaflet-control-layers-toggle {
+            background-color: #f97316 !important; /* orange-500 */
+            color: white !important;
+            border-color: #fb923c !important; /* orange-400 */
+            border-radius: 9999px !important; /* Fully rounded */
+            box-shadow: 0 4px 14px 0 rgba(0,0,0,0.1) !important;
+        }
+        .leaflet-control-zoom a:hover, .leaflet-control-layers-toggle:hover {
+            background-color: #ea580c !important; /* orange-600 */
+        }
+        .leaflet-control-layers-toggle {
+            background-image: none !important;
+            width: 48px !important;
+            height: 48px !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .leaflet-control-layers-toggle::after {
+            font-family: "Font Awesome 6 Free";
+            content: "\f5fd"; /* fa-layer-group icon */
+            font-weight: 900;
+            color: white;
+            font-size: 20px;
+        }
+        .leaflet-control-layers {
+            z-index: 20 !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 14px 0 rgba(0,0,0,0.05) !important;
+            background-color: rgba(255, 255, 255, 0.8) !important;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(249, 115, 22, 0.2) !important;
+        }
+        .leaflet-control-layers-base label {
+            color: #b45309; /* amber-700 */
+            font-weight: 600;
+        }
+        .leaflet-control-layers-selector {
+            accent-color: #f97316; /* orange-500 */
+        }
+        
+        .leaflet-control-watermark img { max-width: 150px; opacity: 0.6; pointer-events: none; }
+        #ai-modal { z-index: 50; }
+        .spinner {
+            border-top-color: #f97316;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .location-card.animate-in { opacity: 0; transform: translateY(20px); transition: opacity 0.5s ease-out, transform 0.5s ease-out; }
+        .location-card.is-visible { opacity: 1; transform: translateY(0); }
+        
+        .user-location-icon {
+            background-color: #f97316; /* Orange-500 */
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        #locate-me-btn {
+            position: absolute;
+            bottom: 2.5rem;
+            right: 1rem;
+            z-index: 400;
+        }
+        .leaflet-bottom.leaflet-right .leaflet-control-zoom {
+            margin-bottom: 6rem !important; /* Increased margin */
+        }
+        .leaflet-routing-container {
+            display: none;
+        }
+
+        /* --- Glass Drop Animation --- */
+        @keyframes glassDrop {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.15); opacity: 0.6; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-glass-drop {
+            animation: glassDrop 0.3s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <svg style="display:none" version="1.1" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <filter id="gooey">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur" />
+                <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo" />
+                <feComposite in="SourceGraphic" in2="goo" operator="atop"/>
+            </filter>
+        </defs>
+    </svg>
+
+    <main id="map"></main>
+
+    <aside id="sidebar" class="w-full md:w-96 flex flex-col">
+        <div class="p-6 flex-grow flex flex-col w-full">
+            <div class="flex justify-center mb-8 pt-4">
+                <img id="sidebar-logo" alt="MUJ Logo" class="h-12">
+            </div>
+            <div class="relative mb-6">
+                <input type="text" id="searchInput" placeholder="Search for a location..." class="w-full p-3 pl-10 bg-white/50 border border-gray-300/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all">
+                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            </div>
+            <button id="ai-planner-btn" class="w-full text-left flex items-center p-3 mb-4 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg shadow-lg hover:scale-105 transition-transform">
+                <i class="fas fa-magic-sparkles mr-3"></i>
+                <span class="font-bold">✨ I can suggest you an itinerary !</span>
+            </button>
+            <h2 class="text-lg font-bold mb-4 text-gray-700">Campus Locations</h2>
+            <div id="locationsList" class="space-y-3 overflow-y-auto flex-grow sidebar-scroll pr-2 -mr-2"></div>
+            <div id="routeInfo" class="mt-6 p-4 bg-gradient-to-br from-orange-50 to-amber-50 rounded-lg border border-orange-200/50 hidden">
+                 <div class="flex justify-between items-center mb-2">
+                    <h3 id="infoTitle" class="text-lg font-bold text-orange-800">Location Details</h3>
+                    <button id="closeRouteBtn" class="text-xl leading-none text-orange-500 hover:text-orange-700 transition">&times;</button>
+                </div>
+                <p id="infoCategory" class="text-sm font-semibold text-orange-600 mb-2"></p>
+                <p id="infoDescription" class="text-sm text-gray-700"></p>
+                <div class="flex space-x-2 mt-3">
+                    <button id="directions-btn" class="text-sm flex-1 flex items-center justify-center p-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 transition">
+                        <i class="fas fa-directions mr-2"></i>
+                        <span>Get Directions</span>
+                    </button>
+                    <button id="tell-me-more-btn" class="text-sm flex-1 flex items-center justify-center p-2 bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200 transition">
+                        <i class="fas fa-lightbulb mr-2"></i>
+                        <span>✨ Tell Me More</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <button id="menu-toggle" class="bg-orange-500 rounded-full shadow-lg text-white hover:bg-orange-600 transition">
+        <div class="hamburger-icon" id="hamburger-icon">
+            <span class="line line-1"></span>
+            <span class="line line-2"></span>
+            <span class="line line-3"></span>
+        </div>
+    </button>
+    
+    <!-- GPS Locate Button -->
+    <button id="locate-me-btn" class="bg-orange-500 p-3 rounded-full shadow-lg text-white hover:bg-orange-600 transition">
+        <i class="fas fa-location-arrow text-xl"></i>
+    </button>
+
+    <div id="ai-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] transform transition-all scale-95 opacity-0">
+            <div class="p-6 border-b border-gray-200">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-2xl font-bold text-gray-800">✨ AI Itinerary Planner</h2>
+                    <button id="close-ai-modal-btn" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div class="p-6 overflow-y-auto">
+                <p class="mb-4 text-gray-600">What would you like to do on campus today? (e.g., "Study for an exam and get lunch")</p>
+                <textarea id="ai-prompt-input" class="w-full p-3 border border-gray-300 rounded-lg mb-4" rows="3"></textarea>
+                <button id="generate-itinerary-btn" class="w-full p-3 bg-orange-600 text-white rounded-lg font-bold hover:bg-orange-700 transition">Generate Plan</button>
+                <div id="ai-results-container" class="mt-4 p-4 bg-gray-50 rounded-lg hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Routing Machine JS -->
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const logoDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAeAAAACHCAYAAAA6jNeBAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAPGSURBVHgB7cEBDQAAAMIg+6e+4goAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4YgHqAAEruG2TAAAAAElFTSuQmCC";
+            const xmlString = `
+                <campus>
+                    <university name="Manipal University Jaipur" lat="26.8436" lon="75.5654" />
+                    <locations>
+                        <location id="admin_block" icon="fas fa-university"><name>Main Admin Block (AB-1)</name><category>Administrative</category><coords lat="26.8445" lon="75.5650" /><description>Main administrative offices, including admissions and finance.</description></location>
+                        <location id="ab2" icon="fas fa-building"><name>Academic Block 2 (AB-2)</name><category>Academic</category><coords lat="26.8455" lon="75.5665" /><description>Houses the engineering and science departments. Labs are on the ground floor.</description></location>
+                        <location id="library" icon="fas fa-book-open"><name>Central Library</name><category>Academic</category><coords lat="26.8430" lon="75.5645" /><description>A quiet place to study with a vast collection of books and digital resources.</description></location>
+                        <location id="food_court" icon="fas fa-utensils"><name>Student Food Court</name><category>Food &amp; Dining</category><coords lat="26.8420" lon="75.5670" /><description>Offers a variety of food options from different vendors. Open till 10 PM.</description></location>
+                        <location id="innovation_hub" icon="fas fa-lightbulb"><name>Student Innovation Hub</name><category>Collaboration</category><coords lat="26.8432" lon="75.5658" /><description>A place for students to work on projects and startups. Open 24/7.</description></location>
+                        <location id="hostel_1" icon="fas fa-bed"><name>Boys Hostel 1</name><category>Residences</category><coords lat="26.8405" lon="75.5680" /><description>First-year student residence for boys.</description></location>
+                        <location id="hostel_5" icon="fas fa-bed"><name>Girls Hostel 5</name><category>Residences</category><coords lat="26.8465" lon="75.5620" /><description>Senior student residence for girls. Has an attached gym.</description></location>
+                        <location id="sports_complex" icon="fas fa-futbol"><name>Sports Complex</name><category>Recreation</category><coords lat="26.8410" lon="75.5630" /><description>Includes basketball courts, a football field, and a running track.</description></location>
+                    </locations>
+                </campus>
+            `;
+
+            let locations = [];
+            let map;
+            let currentOpenLocation = null;
+            let userLocationMarker = null;
+            let userCoords = null;
+            let routingControl = null;
+
+            const sidebar = document.getElementById('sidebar');
+            const menuToggle = document.getElementById('menu-toggle');
+            const hamburgerIcon = document.getElementById('hamburger-icon');
+            const mapElement = document.getElementById('map');
+            const locationsListContainer = document.getElementById('locationsList');
+            const searchInput = document.getElementById('searchInput');
+            const routeInfo = document.getElementById('routeInfo');
+            const infoTitle = document.getElementById('infoTitle');
+            const infoCategory = document.getElementById('infoCategory');
+            const infoDescription = document.getElementById('infoDescription');
+            const closeRouteBtn = document.getElementById('closeRouteBtn');
+            const sidebarLogo = document.getElementById('sidebar-logo');
+            const locateMeBtn = document.getElementById('locate-me-btn');
+            const directionsBtn = document.getElementById('directions-btn');
+            
+            const aiModal = document.getElementById('ai-modal');
+            const aiPlannerBtn = document.getElementById('ai-planner-btn');
+            const closeAiModalBtn = document.getElementById('close-ai-modal-btn');
+            const aiPromptInput = document.getElementById('ai-prompt-input');
+            const generateItineraryBtn = document.getElementById('generate-itinerary-btn');
+            const aiResultsContainer = document.getElementById('ai-results-container');
+            const tellMeMoreBtn = document.getElementById('tell-me-more-btn');
+
+            function initializeApp() {
+                sidebarLogo.src = logoDataUrl;
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+                processXmlData(xmlDoc);
+                const universityNode = xmlDoc.querySelector("university");
+                const uniLat = parseFloat(universityNode.getAttribute("lat"));
+                const uniLon = parseFloat(universityNode.getAttribute("lon"));
+                
+                const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri' });
+                const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                });
+                
+                map = L.map('map', { center: [uniLat, uniLon], zoom: 16, zoomControl: false, layers: [streetLayer] });
+                L.control.zoom({ position: 'bottomright' }).addTo(map);
+                const baseMaps = { "Street": streetLayer, "Satellite": satelliteLayer };
+                L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
+                
+                L.Control.Watermark = L.Control.extend({ onAdd: (map) => L.DomUtil.create('img', '', L.DomUtil.get(map.getContainer())), });
+                L.control.watermark = (opts) => new L.Control.Watermark(opts);
+                const watermarkControl = L.control.watermark({ position: 'bottomright' }).addTo(map);
+                watermarkControl.getContainer().innerHTML = `<img src="${logoDataUrl}" style="max-width:150px; opacity:0.6; pointer-events:none;"/>`;
+
+                renderLocationsList();
+                setupEventListeners();
+            }
+
+            function processXmlData(xmlDoc) {
+                const locationNodes = xmlDoc.querySelectorAll("location");
+                locations = Array.from(locationNodes).map(node => ({
+                    id: node.getAttribute("id"),
+                    name: node.querySelector("name").textContent,
+                    icon: node.getAttribute("icon"),
+                    category: node.querySelector("category").textContent,
+                    coords: [parseFloat(node.querySelector("coords").getAttribute("lat")), parseFloat(node.querySelector("coords").getAttribute("lon"))],
+                    description: node.querySelector("description")?.textContent || "No description available."
+                }));
+            }
+
+            function renderLocationsList(filter = '') {
+                locationsListContainer.innerHTML = '';
+                const filtered = locations.filter(loc => loc.name.toLowerCase().includes(filter.toLowerCase()));
+                if (filtered.length === 0) {
+                    locationsListContainer.innerHTML = `<p class="text-gray-500 text-center">No locations found.</p>`;
+                    return;
+                }
+                filtered.forEach((location, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'location-card animate-in flex items-center p-3 bg-white/60 border border-gray-200/80 rounded-lg shadow-sm hover:shadow-xl hover:border-orange-400 cursor-pointer transition-all duration-300';
+                    card.style.transitionDelay = `${index * 50}ms`;
+                    card.innerHTML = `<div class="w-10 h-10 bg-gradient-to-br from-orange-400 to-amber-500 rounded-lg flex items-center justify-center mr-4 shadow-md"><i class="${location.icon} text-white text-xl"></i></div><div><h4 class="font-bold text-gray-800">${location.name}</h4><p class="text-sm text-gray-600">${location.category}</p></div>`;
+                    card.addEventListener('click', () => showRoute(location));
+                    locationsListContainer.appendChild(card);
+                });
+
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('is-visible');
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, { threshold: 0.1 });
+
+                document.querySelectorAll('.location-card.animate-in').forEach(card => {
+                    observer.observe(card);
+                });
+            }
+
+            function showRoute(location) {
+                currentOpenLocation = location;
+                map.setView(location.coords, 18);
+                infoTitle.textContent = location.name;
+                infoCategory.textContent = location.category;
+                infoDescription.textContent = location.description;
+                routeInfo.classList.remove('hidden');
+                
+                sidebar.classList.remove('open');
+                mapElement.classList.remove('map-pushed');
+                updateMenuIcon();
+            }
+
+            function updateMenuIcon() {
+                const isOpen = sidebar.classList.contains('open');
+                hamburgerIcon.classList.toggle('open', isOpen);
+            }
+            
+            async function callGemini(prompt) {
+                // IMPORTANT: Replace with your actual Gemini API key
+                const apiKey = 'AIzaSyBWGBe_Ka_6nwRdf-8wwrHqJpQIBfRyaZw'; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+                    const result = await response.json();
+                    if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts[0]) {
+                        return result.candidates[0].content.parts[0].text;
+                    }
+                    return "Sorry, I couldn't generate a response. Please try again.";
+                } catch (error) {
+                    console.error("Gemini API call error:", error);
+                    return "An error occurred while contacting the AI. Please check the console.";
+                }
+            }
+            
+            function applyGlassDropAnimation(element) {
+                element.classList.add('animate-glass-drop');
+                setTimeout(() => {
+                    element.classList.remove('animate-glass-drop');
+                }, 300);
+            }
+
+            function setupEventListeners() {
+                menuToggle.addEventListener('click', () => {
+                    sidebar.classList.toggle('open');
+                    mapElement.classList.toggle('map-pushed');
+                    updateMenuIcon();
+                    applyGlassDropAnimation(menuToggle);
+                });
+
+                locateMeBtn.addEventListener('click', () => {
+                    applyGlassDropAnimation(locateMeBtn);
+                    if (!navigator.geolocation) {
+                        alert("Geolocation is not supported by your browser.");
+                        return;
+                    }
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            userCoords = [position.coords.latitude, position.coords.longitude];
+                            if(userLocationMarker) {
+                                userLocationMarker.setLatLng(userCoords);
+                            } else {
+                                const userIcon = L.divIcon({
+                                    className: 'user-location-icon',
+                                    iconSize: [16, 16],
+                                });
+                                userLocationMarker = L.marker(userCoords, { icon: userIcon }).addTo(map);
+                            }
+                            userLocationMarker.bindPopup("<b>You are here!</b>").openPopup();
+                            map.setView(userCoords, 18);
+                        },
+                        () => {
+                            alert("Unable to retrieve your location. Please ensure location services are enabled.");
+                        }
+                    );
+                });
+
+                // Add animation to Leaflet controls after they are created
+                setTimeout(() => {
+                    const zoomInBtn = document.querySelector('.leaflet-control-zoom-in');
+                    const zoomOutBtn = document.querySelector('.leaflet-control-zoom-out');
+                    const layersBtn = document.querySelector('.leaflet-control-layers-toggle');
+                    
+                    if(zoomInBtn) zoomInBtn.addEventListener('click', () => applyGlassDropAnimation(zoomInBtn));
+                    if(zoomOutBtn) zoomOutBtn.addEventListener('click', () => applyGlassDropAnimation(zoomOutBtn));
+                    if(layersBtn) layersBtn.addEventListener('click', () => applyGlassDropAnimation(layersBtn));
+                }, 500);
+
+
+                searchInput.addEventListener('input', (e) => renderLocationsList(e.target.value));
+                
+                closeRouteBtn.addEventListener('click', () => {
+                    routeInfo.classList.add('hidden');
+                    if (routingControl) {
+                        map.removeControl(routingControl);
+                        routingControl = null;
+                    }
+                    const uniCoords = [parseFloat(document.querySelector("university").getAttribute("lat")), parseFloat(document.querySelector("university").getAttribute("lon"))];
+                    map.setView(uniCoords, 16);
+                });
+
+                aiPlannerBtn.addEventListener('click', () => {
+                    aiModal.classList.remove('hidden');
+                    setTimeout(() => aiModal.querySelector('div > div').classList.add('scale-100', 'opacity-100'), 10);
+                });
+
+                closeAiModalBtn.addEventListener('click', () => {
+                    const modalContent = aiModal.querySelector('div > div');
+                    modalContent.classList.remove('scale-100', 'opacity-100');
+                    setTimeout(() => aiModal.classList.add('hidden'), 200);
+                });
+
+                generateItineraryBtn.addEventListener('click', async () => {
+                    const userInput = aiPromptInput.value.trim();
+                    if (!userInput) return;
+                    const btn = generateItineraryBtn;
+                    btn.disabled = true;
+                    btn.innerHTML = '<div class="spinner w-5 h-5 mx-auto border-2 border-white rounded-full"></div>';
+                    const locationNames = locations.map(l => l.name).join(', ');
+                    const prompt = `I am a student at Manipal University Jaipur. I want to: "${userInput}". Suggest a simple, step-by-step itinerary for me on campus. Mention the building names clearly. Available locations are: ${locationNames}.`;
+                    const result = await callGemini(prompt);
+                    aiResultsContainer.innerHTML = result.replace(/\n/g, '<br>');
+                    aiResultsContainer.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.textContent = 'Generate Plan';
+                });
+
+                tellMeMoreBtn.addEventListener('click', async () => {
+                    if (!currentOpenLocation) return;
+                    const btn = tellMeMoreBtn;
+                    btn.disabled = true;
+                    infoDescription.innerHTML = '<div class="spinner w-4 h-4 mx-auto border-2 border-orange-500 rounded-full"></div>';
+                    const prompt = `Tell me more about the "${currentOpenLocation.name}" at Manipal University Jaipur. Its category is "${currentOpenLocation.category}". Make the description engaging and useful for a student, perhaps mentioning a fun fact or a useful tip. Original description: "${currentOpenLocation.description}"`;
+                    const result = await callGemini(prompt);
+                    infoDescription.textContent = result;
+                    btn.disabled = false;
+                });
+
+                directionsBtn.addEventListener('click', () => {
+                    if (!userCoords) {
+                        alert("Please find your location first using the GPS button!");
+                        return;
+                    }
+                    if (!currentOpenLocation) {
+                        alert("Please select a destination from the list first!");
+                        return;
+                    }
+
+                    if (routingControl) {
+                        map.removeControl(routingControl);
+                    }
+
+                    routingControl = L.Routing.control({
+                        waypoints: [
+                            L.latLng(userCoords[0], userCoords[1]),
+                            L.latLng(currentOpenLocation.coords[0], currentOpenLocation.coords[1])
+                        ],
+                        routeWhileDragging: true,
+                        createMarker: function() { return null; } // Hide default start/end markers
+                    }).addTo(map);
+                });
+            }
+
+            initializeApp();
+        });
+    </script>
+</body>
+</html>

@@ -392,7 +392,7 @@
             
             async function callGemini(prompt) {
                 // IMPORTANT: Replace with your actual Gemini API key
-                const apiKey = 'AIzaSyBWGBe_Ka_6nwRdf-8wwrHqJpQIBfRyaZw'; 
+                const apiKey = 'insert your gemini api key here'; // insert you api key here between quotes
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
                 const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
                 try {
